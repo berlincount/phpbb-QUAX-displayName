@@ -89,12 +89,24 @@ class listener implements EventSubscriberInterface
         public function mobiquo_getMessage($event) {
             $message = $event['message'];
 
+            // replace the 'msg_from' id
             $displayname = $this->getDisplayName($message['msg_from_id']);
 
             if (!is_null($displayname)) {
               $message['msg_from'] = $displayname.' ('.$message['msg_from'].')';
-              $event['message'] = $message;
             }
+
+            // replace all quotes
+            $count = preg_match_all('%\[quote uid=([0-9]+) name="([^"]+)"([^\]]*)\]%', $message['text_body'], $matches, PREG_SET_ORDER);
+            foreach ($matches as $key => $match) {
+              $displayname = $this->getDisplayName($match[1]);
+              if (!is_null($displayname)) {
+                $message['text_body'] = str_replace($match[0], '[quote uid='.$match[1].' name="'.$displayname.' ('.$match[2].')"'.$match[3].']', $message['text_body']);
+              }
+            }
+
+            // storage updated message
+            $event['message'] = $message;
         }
 
         public function mobiquo_getBox($event) {
