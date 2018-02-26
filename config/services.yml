@@ -1,0 +1,7 @@
+services:
+    QUAX.displayName.listener:
+        class: QUAX\displayName\event\listener
+        arguments:
+            - '@user'
+        tags:
+            - { name: event.listener }
