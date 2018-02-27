@@ -68,7 +68,7 @@ class listener implements EventSubscriberInterface
                 $event['username_string'] = $displayname.' ('.$event['username_string'].')';
               } else if (substr($event['username_string'], -$namelen-4) === $event['username'].'</a>') {
                 // strlen('</a>') == 4
-                $event['username_string'] = $displayname.' ('.$event['username_string'].')';
+                $event['username_string'] = substr($event['username_string'], 0, strlen($event['username_string'])-$namelen-4).$displayname.' ('.$event['username'].')</a>';
               } else if (substr($event['username_string'], -$namelen-7) === $event['username'].'</span>') {
                 // strlen('</span>') == 7
                 $event['username_string'] = substr($event['username_string'], 0, strlen($event['username_string'])-$namelen-7).$displayname.' ('.$event['username'].')</span>';
