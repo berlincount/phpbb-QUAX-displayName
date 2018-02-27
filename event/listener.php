@@ -31,32 +31,48 @@ class listener implements EventSubscriberInterface
                 $this->user = $user;
         }
 
-	static public function getSubscribedEvents()
-	{
-		return array(
-                    'core.modify_username_string' => 'modify_username_string',
-                    'core.modify_text_for_display_before' => 'modify_text_for_display_before',
-                    'mobiquo.getDisplayName' => 'mobiquo_getDisplayName',
-                    'mobiquo.getMessage' => 'mobiquo_getMessage',
-                    'mobiquo.getBox' => 'mobiquo_getBox',
-		);
-	}
+        static public function getSubscribedEvents()
+        {
+          return array(
+            'core.modify_username_string' => 'modify_username_string',
+            'core.modify_text_for_display_before' => 'modify_text_for_display_before',
+            'mobiquo.createMessage' => 'mobiquo_createMessage',
+            'mobiquo.getDisplayName' => 'mobiquo_getDisplayName',
+            'mobiquo.getMessage' => 'mobiquo_getMessage',
+            'mobiquo.getBox' => 'mobiquo_getBox',
+          );
+        }
 
         static public function getDisplayName($user_id) {
             global $phpbb_container;
 
-	    /* @var $cp \phpbb\profilefields\manager */
-	    $cp = $phpbb_container->get('profilefields.manager');
+            /* @var $cp \phpbb\profilefields\manager */
+            $cp = $phpbb_container->get('profilefields.manager');
             $profile_fields = $cp->grab_profile_fields_data($user_id);
 
             if (array_key_exists($user_id, $profile_fields) &&
                 array_key_exists('displayname', $profile_fields[$user_id]) &&
-                !is_null($profile_fields[$user_id]['displayname']['value'])
+                !empty($profile_fields[$user_id]['displayname']['value'])
             ) {
               return $profile_fields[$user_id]['displayname']['value'];
             }
 
             return NULL;
+        }
+
+        static public function getUserId($username) {
+            global $phpbb_root_path, $phpEx;
+            if (!function_exists('user_get_id_name')) {
+              include($phpbb_root_path . 'includes/functions_user.' . $phpEx);
+            }
+
+            $ids = array();
+            $names = array($username);
+            if (user_get_id_name($ids, $names) === false) {
+                return($ids[0]);
+            } else {
+                return NULL;
+            }
         }
 
         public function modify_username_string($event) {
@@ -82,11 +98,10 @@ class listener implements EventSubscriberInterface
             // replace all quotes
             $count = preg_match_all('%\<QUOTE author="([^"]+)">%', $text, $matches, PREG_SET_ORDER);
             foreach ($matches as $key => $match) {
-              $ids = array();
-              $names = array($match[1]);
-              if (user_get_id_name($ids, $names) === false) {
-                $displayname = $this->getDisplayName($ids[0]);
-                if (!is_null($displayname)) {
+              $userId = $this->getUserId($match[1]);
+              if (!is_null($userId)) {
+                $displayname = $this->getDisplayName($userId);
+                if (!empty($displayname)) {
                   $text = str_replace($match[0], '<QUOTE author="'.$displayname.' ('.$match[1].')">', $text);
                 }
               }
@@ -96,10 +111,30 @@ class listener implements EventSubscriberInterface
             $event['text'] = $text;
         }
 
+        public function mobiquo_createMessage($event) {
+            $message = $event['message'];
+
+            foreach ($message->usernames as $key => $value) {
+                if (preg_match('%\(([^\)]+)\)$%', $value, $matches)) {
+                   $username = $matches[1];
+                   $userId = $this->getUserId($username);
+                   if (!is_null($userId)) {
+                     $displayname = $this->getDisplayName($userId);
+                     if (!empty($displayname) && ($value == $displayname.' ('.$username.')')) {
+                       $message->usernames[$key] = $username;
+                     }
+                   }
+                }
+            }
+
+            // storage updated message
+            $event['message'] = $message;
+        }
+
         public function mobiquo_getDisplayName($event) {
             $displayname = $this->getDisplayName($event['userId']);
 
-            if (!is_null($displayname)) {
+            if (!empty($displayname)) {
               $event['displayName'] = $displayname.' ('.$event['displayName'].')';
             }
         }
@@ -110,7 +145,7 @@ class listener implements EventSubscriberInterface
             // replace the 'msg_from' id
             $displayname = $this->getDisplayName($message['msg_from_id']);
 
-            if (!is_null($displayname)) {
+            if (!empty($displayname)) {
               $message['msg_from'] = $displayname.' ('.$message['msg_from'].')';
             }
 
@@ -118,7 +153,7 @@ class listener implements EventSubscriberInterface
             $count = preg_match_all('%\[quote uid=([0-9]+) name="([^"]+)"([^\]]*)\]%', $message['text_body'], $matches, PREG_SET_ORDER);
             foreach ($matches as $key => $match) {
               $displayname = $this->getDisplayName($match[1]);
-              if (!is_null($displayname)) {
+              if (!empty($displayname)) {
                 $message['text_body'] = str_replace($match[0], '[quote uid='.$match[1].' name="'.$displayname.' ('.$match[2].')"'.$match[3].']', $message['text_body']);
               }
             }
@@ -133,7 +168,7 @@ class listener implements EventSubscriberInterface
             foreach ($list as $key => $message) {
                 $displayname = $this->getDisplayName($message['msg_from_id']);
 
-              if (!is_null($displayname)) {
+              if (!empty($displayname)) {
                   $message['msg_from'] = $displayname.' ('.$message['msg_from'].')';
                   $list[$key] = $message;
               }
