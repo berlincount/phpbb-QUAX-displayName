@@ -34,7 +34,8 @@ class listener implements EventSubscriberInterface
 	static public function getSubscribedEvents()
 	{
 		return array(
-                    'core.viewtopic_cache_user_data'	=> 'viewtopic_cache_user_data',
+                    'core.modify_username_string' => 'modify_username_string',
+                    'core.modify_text_for_display_before' => 'modify_text_for_display_before',
                     'mobiquo.getDisplayName' => 'mobiquo_getDisplayName',
                     'mobiquo.getMessage' => 'mobiquo_getMessage',
                     'mobiquo.getBox' => 'mobiquo_getBox',
@@ -58,24 +59,41 @@ class listener implements EventSubscriberInterface
             return NULL;
         }
 
-	/**
-	 *
-	 * @param \phpbb\event\data	$event	Event object
-         */
-	public function viewtopic_cache_user_data($event)
-        {
-            $displayname = $this->getDisplayName($event['poster_id']);
+        public function modify_username_string($event) {
 
-            if (!is_null($displayname)) {
-              // get user_cache_data
-              $user_cache_data = $event['user_cache_data'];
-              $namelen = strlen($user_cache_data['username']);
-              // strlen('</a>') == 4
-              if (substr($user_cache_data['author_full'], -$namelen-4) === $user_cache_data['author_username'].'</a>') {
-                $user_cache_data['author_full'] = $displayname.' ('.$user_cache_data['author_full'].')';
-                $event['user_cache_data'] = $user_cache_data;
+            $displayname = $this->getDisplayName($event['user_id']);
+            if (!empty($displayname)) {
+              $namelen = strlen($event['username']);
+              if ($event['username_string'] == $event['username']) {
+                $event['username_string'] = $displayname.' ('.$event['username_string'].')';
+              } else if (substr($event['username_string'], -$namelen-4) === $event['username'].'</a>') {
+                // strlen('</a>') == 4
+                $event['username_string'] = $displayname.' ('.$event['username_string'].')';
+              } else if (substr($event['username_string'], -$namelen-7) === $event['username'].'</span>') {
+                // strlen('</span>') == 7
+                $event['username_string'] = substr($event['username_string'], 0, strlen($event['username_string'])-$namelen-7).$displayname.' ('.$event['username'].')</span>';
               }
             }
+        }
+
+        public function modify_text_for_display_before($event) {
+            $text = $event['text'];
+
+            // replace all quotes
+            $count = preg_match_all('%\<QUOTE author="([^"]+)">%', $text, $matches, PREG_SET_ORDER);
+            foreach ($matches as $key => $match) {
+              $ids = array();
+              $names = array($match[1]);
+              if (user_get_id_name($ids, $names) === false) {
+                $displayname = $this->getDisplayName($ids[0]);
+                if (!is_null($displayname)) {
+                  $text = str_replace($match[0], '<QUOTE author="'.$displayname.' ('.$match[1].')">', $text);
+                }
+              }
+            }
+
+            // storage updated message
+            $event['text'] = $text;
         }
 
         public function mobiquo_getDisplayName($event) {
