@@ -31,6 +31,7 @@ class listener implements EventSubscriberInterface
                 $this->user = $user;
         }
 
+        // subscribe to all events where we need to rewrite data
         static public function getSubscribedEvents()
         {
           return array(
@@ -40,9 +41,12 @@ class listener implements EventSubscriberInterface
             'mobiquo.getDisplayName' => 'mobiquo_getDisplayName',
             'mobiquo.getMessage' => 'mobiquo_getMessage',
             'mobiquo.getBox' => 'mobiquo_getBox',
+            'mobiquo.searchUser' => 'mobiquo_searchUser',
+            'mobiquo.searchUser.post' => 'mobiquo_searchUser_post',
           );
         }
 
+        // get displayname from profile fields
         static public function getDisplayName($user_id) {
             global $phpbb_container;
 
@@ -60,8 +64,10 @@ class listener implements EventSubscriberInterface
             return NULL;
         }
 
+        // get user id from username
         static public function getUserId($username) {
             global $phpbb_root_path, $phpEx;
+
             if (!function_exists('user_get_id_name')) {
               include($phpbb_root_path . 'includes/functions_user.' . $phpEx);
             }
@@ -75,9 +81,10 @@ class listener implements EventSubscriberInterface
             }
         }
 
+        // override username display rendering (web display)
         public function modify_username_string($event) {
-
             $displayname = $this->getDisplayName($event['user_id']);
+
             if (!empty($displayname)) {
               $namelen = strlen($event['username']);
               if ($event['username_string'] == $event['username']) {
@@ -92,6 +99,7 @@ class listener implements EventSubscriberInterface
             }
         }
 
+        // override usernames in quote headers inside posts (web display)
         public function modify_text_for_display_before($event) {
             $text = $event['text'];
 
@@ -111,6 +119,7 @@ class listener implements EventSubscriberInterface
             $event['text'] = $text;
         }
 
+        // remove displayname from username field before posting message
         public function mobiquo_createMessage($event) {
             $message = $event['message'];
 
@@ -131,6 +140,7 @@ class listener implements EventSubscriberInterface
             $event['message'] = $message;
         }
 
+        // override username display rendering (tapatalk)
         public function mobiquo_getDisplayName($event) {
             $displayname = $this->getDisplayName($event['userId']);
 
@@ -139,6 +149,7 @@ class listener implements EventSubscriberInterface
             }
         }
 
+        // override usernames in PM headers and quote blocks (tapatalk)
         public function mobiquo_getMessage($event) {
             $message = $event['message'];
 
@@ -162,6 +173,7 @@ class listener implements EventSubscriberInterface
             $event['message'] = $message;
         }
 
+        // override usernames in message boxes (tapatalk)
         public function mobiquo_getBox($event) {
             $box = $event['box'];
             $list = $box['list'];
@@ -175,5 +187,53 @@ class listener implements EventSubscriberInterface
             }
             $box['list'] = $list;
             $event['box'] = $box;
+        }
+
+        // add displayname based results to user search results (tapatalk)
+        public function mobiquo_searchUser($event) {
+            global $db;
+
+            // collect userIds already found
+            $userIds = array();
+            foreach ($event['datas'] as $key => $value) {
+              $userIds[] = $value->userId->oriValue;
+            }
+
+            // search for the user by realname
+            $sql = "SELECT user_id FROM ".PROFILE_FIELDS_DATA_TABLE." WHERE LOWER(pf_displayname) LIKE LOWER('%".$db->sql_escape($event['keywords'])."%')";
+            $sqlresult = $db->sql_query($sql);
+
+            // collect all new userids
+            while($row = $db->sql_fetchrow($sqlresult))
+            {
+                $userIds[] = $row['user_id'];
+            }
+            $db->sql_freeresult($sqlresult);
+
+            // unify the array
+            $userIds = array_unique($userIds);
+
+            // convert to user objects
+            $oMbqRdEtUser = \MbqMain::$oClk->newObj('MbqRdEtUser');
+            $userObjects = $oMbqRdEtUser->getObjsMbqEtUser($userIds, array('case' => 'byUserIds'));
+
+            // replace previous array completely
+            $event['datas'] = $userObjects;
+
+            $event['totalNum'] = sizeof($event['datas']);
+        }
+
+        // reformat usernames in list for proper search result rendering
+        public function mobiquo_searchUser_post($event) {
+            $list = $event['list'];
+            foreach ($list as $key => $value) {
+              if (preg_match('%^(.*) \(([^\)]+)\)$%', $value['user_name'], $matches)) {
+                $value['user_name'] = $matches[2].' - '.$matches[1];
+                $list[$key] = $value;
+              }
+            }
+
+            // store updated list
+            $event['list'] = $list;
         }
 }
